@@ -1,21 +1,33 @@
 spring:
   application:
-    name: kafka-demo
+    name: kafka-example
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/inventory_db
+    username: user
+    password: password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
 
   kafka:
     bootstrap-servers: localhost:9092,localhost:9094,localhost:9096
     consumer:
-      #      isolation-level: read_committed
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      enable-auto-commit: false
-    producer:
-      #      transaction-id-prefix: my-transactional-id-
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
       properties:
-        partitioner.class: org.apache.kafka.clients.producer.RoundRobinPartitioner
-      acks: 1
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: "*"
+        spring.json.value.default.type: "ourcorp.kafka.example.model.event.UserCreatedEvent"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        #        header-a id elave edilmesi
+        spring.json.add.type.headers: false
+
 server:
   port: 8085
