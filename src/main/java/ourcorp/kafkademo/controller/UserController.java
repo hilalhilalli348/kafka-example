@@ -16,6 +16,7 @@ import ourcorp.kafkademo.producer.UserService;
 public class UserController {
 
     private final UserService userService;
+
     @ResponseStatus(value = CREATED)
     @PostMapping
     public void create(@RequestBody UserCreatedRequest request) {

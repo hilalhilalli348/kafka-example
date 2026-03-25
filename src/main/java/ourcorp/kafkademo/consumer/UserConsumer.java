@@ -10,7 +10,7 @@ import ourcorp.kafkademo.model.event.UserCreatedEvent;
 @Slf4j
 @Service
 @KafkaListener(topics = "outbox.event.User", groupId = "user-group")
-public class UserConsumerService {
+public class UserConsumer {
 
     @KafkaHandler
     public void handleUserCreated(UserCreatedEvent event, @Header("eventType") String eventType) {
