@@ -1,4 +1,4 @@
-> 🌐 **Language / Dil:** [🇦🇿 Azərbaycan](#-azərbaycan) · [🇬🇧 English](#-english)
+> 🌐 **Language / Dil:** [🇦🇿 Azərbaycanca](#-azərbaycan) · [🇬🇧 English](#-english)
 
 ---
 
