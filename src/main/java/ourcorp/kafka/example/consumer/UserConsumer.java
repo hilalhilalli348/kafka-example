@@ -1,11 +1,11 @@
-package ourcorp.kafkademo.consumer;
+package ourcorp.kafka.example.consumer;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
-import ourcorp.kafkademo.model.event.UserCreatedEvent;
+import ourcorp.kafka.example.model.event.UserCreatedEvent;
 
 @Slf4j
 @Service

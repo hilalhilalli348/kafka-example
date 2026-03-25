@@ -1,4 +1,4 @@
-package ourcorp.kafkademo.dao.entity;
+package ourcorp.kafka.example.dao.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

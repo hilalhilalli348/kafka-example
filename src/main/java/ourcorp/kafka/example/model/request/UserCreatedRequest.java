@@ -1,15 +1,13 @@
-package ourcorp.kafkademo.model.event;
+package ourcorp.kafka.example.model.request;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
 @Data
-public class UserCreatedEvent {
+public class UserCreatedRequest {
 
     private String name;
 

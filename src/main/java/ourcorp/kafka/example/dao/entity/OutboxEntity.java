@@ -1,4 +1,4 @@
-package ourcorp.kafkademo.dao.entity;
+package ourcorp.kafka.example.dao.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;

@@ -1,8 +1,8 @@
-package ourcorp.kafkademo.dao.repo;
+package ourcorp.kafka.example.dao.repo;
 
 
 import org.springframework.data.repository.CrudRepository;
-import ourcorp.kafkademo.dao.entity.OutboxEntity;
+import ourcorp.kafka.example.dao.entity.OutboxEntity;
 
 public interface OutboxRepository extends CrudRepository<OutboxEntity, Long> {
 }

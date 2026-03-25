@@ -1,7 +1,7 @@
-package ourcorp.kafkademo.dao.repo;
+package ourcorp.kafka.example.dao.repo;
 
 import org.springframework.data.repository.CrudRepository;
-import ourcorp.kafkademo.dao.entity.UserEntity;
+import ourcorp.kafka.example.dao.entity.UserEntity;
 
 public interface UserRepository extends CrudRepository<UserEntity, Long> {
 }
