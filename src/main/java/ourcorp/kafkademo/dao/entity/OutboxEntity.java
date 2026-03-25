@@ -1,5 +1,3 @@
-
-
 package ourcorp.kafkademo.dao.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;

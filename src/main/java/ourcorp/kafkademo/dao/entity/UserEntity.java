@@ -1,5 +1,3 @@
-
-
 package ourcorp.kafkademo.dao.entity;
 
 import jakarta.persistence.Column;
