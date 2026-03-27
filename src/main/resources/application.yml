@@ -2,18 +2,17 @@ spring:
   application:
     name: kafka-example
 
-  datasource:
-    url: jdbc:postgresql://localhost:5432/inventory_db
-    username: user
-    password: password
-    driver-class-name: org.postgresql.Driver
-  jpa:
-    hibernate:
-      ddl-auto: update
-    open-in-view: false
-
   kafka:
     bootstrap-servers: localhost:9092,localhost:9094,localhost:9096
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        # header-a  deserialize etmesi ucun typeid elave edilmesi bu consumer terefde lazim olur.(konkret misal : __TypeId__ #"ourcorp.kafka.example.model.event.UserCreatedEvent")
+        # Ben bu JSON verisini hangi Class'a dönüştüreceğim? sualinin cavabi bu id ile mueyyen edilir eks halda deserilze edile bilmir ve dlt-e gedir yazmisiqsa.
+        spring.json.add.type.headers: true
+
     consumer:
       value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       auto-offset-reset: earliest
@@ -21,13 +20,6 @@ spring:
       properties:
         spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
         spring.json.trusted.packages: "*"
-        spring.json.value.default.type: "ourcorp.kafka.example.model.event.UserCreatedEvent"
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-      properties:
-        #        header-a id elave edilmesi
-        spring.json.add.type.headers: false
 
 server:
   port: 8085

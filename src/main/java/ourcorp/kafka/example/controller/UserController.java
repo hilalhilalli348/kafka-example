@@ -8,19 +8,19 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import ourcorp.kafka.example.model.request.UserCreatedRequest;
-import ourcorp.kafka.example.producer.UserService;
+import ourcorp.kafka.example.producer.UserProducer;
 
 @RequiredArgsConstructor
 @RestController
 @RequestMapping("api/v1/users")
 public class UserController {
 
-    private final UserService userService;
+    private final UserProducer userProducer;
 
     @ResponseStatus(value = CREATED)
     @PostMapping
     public void create(@RequestBody UserCreatedRequest request) {
-        userService.createUser(request);
+        userProducer.createUser(request);
     }
 
 }
