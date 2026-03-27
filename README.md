@@ -1,4 +1,4 @@
-> 🌐 **Language / Dil:** [🇦🇿 AZ](#-azərbaycan) · [🇬🇧 EN](#-english)
+> Language / Dil: [AZ](#az) | [EN](#en)
 
 ---
 
