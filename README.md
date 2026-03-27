@@ -1,8 +1,8 @@
-> 🌐 **Language / Dil:** [🇦🇿 Azərbaycanca](#-azərbaycan) · [🇬🇧 English](#-english)
+> 🌐 **Language / Dil:** [🇦🇿 AZ](#-azərbaycan) · [🇬🇧 EN](#-english)
 
 ---
 
-## 🇦🇿 Azərbaycanca
+## AZ
 
 # Kafka Outbox Pattern Demo
 
@@ -45,7 +45,7 @@ curl -X POST http://localhost:8085/users \
 
 ---
 
-## 🇬🇧 English
+## EN
 
 # Kafka Outbox Pattern Demo
 
