@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import ourcorp.kafka.example.model.request.UsernameChangedRequest;
 import ourcorp.kafka.example.model.request.UserCreatedRequest;
 import ourcorp.kafka.example.producer.UserProducer;
 
@@ -21,6 +22,12 @@ public class UserController {
     @PostMapping
     public void create(@RequestBody UserCreatedRequest request) {
         userProducer.createUser(request);
+    }
+
+    @ResponseStatus(value = CREATED)
+    @PostMapping("/username-changes")
+    public void changeUsername(@RequestBody UsernameChangedRequest request) {
+        userProducer.changeUsername(request);
     }
 
 }

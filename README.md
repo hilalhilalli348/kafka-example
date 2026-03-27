@@ -2,84 +2,203 @@
 
 ## AZ
 
-# Kafka Error Handling Demo
+# Kafka Non-Blocking Retry və DLT Demo
 
-Bu layihə Spring Kafka-da `ErrorHandlingDeserializer`, `DefaultErrorHandler` və `Dead Letter Topic (DLT)` axınının necə işlədiyini göstərən sadə nümunədir.
+Bu layihə Spring Kafka-da `@RetryableTopic` istifadə edərək non-blocking retry və Dead Letter Topic (DLT) axınının necə işlədiyini göstərən sadə nümunədir.
 
-Burada əsas fikir budur:
+Layihədə iki fərqli consumer axını göstərilir:
 
-- Producer `user-created-event-topic` topic-ə JSON event göndərir.
-- Consumer mesajı `ErrorHandlingDeserializer` ilə deserialize edir.
-- Deserialize və ya processing zamanı xəta baş verərsə, Spring Kafka `DefaultErrorHandler`-ı işə salır.
-- Retry olunmalı xətalar bir neçə dəfə yenidən yoxlanılır.
-- Retry olunmayan və ya retry limitini keçən mesajlar `user-created-event-topic-dlt` topic-inə yönləndirilir.
+- `UserCreatedConsumer` retryable ssenarini göstərir
+- `UsernameChangedConsumer` non-retryable ssenarini göstərir
+
+Beləliklə eyni repo daxilində həm retry olunan, həm də birbaşa DLT-yə gedən xəta nümunəsini görmək mümkündür.
 
 ## Layihədə nə göstərilir
 
 Bu repo aşağıdakı davranışları göstərmək üçün hazırlanıb:
 
-- `ErrorHandlingDeserializer` deserialize xətasını listener-i tam qırmadan idarə edir.
-- `JsonDeserializer` istifadə olunur və producer mesaj header-larında type məlumatı göndərir.
-- `DefaultErrorHandler` `FixedBackOff(500ms, 3)` ilə retry edir.
-- `RetryableException` retry edilən exception kimi qeyd olunub.
-- `NotRetryableException` retry edilmədən reject olunan exception kimi qeyd olunub.
-- `DeadLetterPublishingRecoverer` problemli mesajı eyni partition üzrə DLT-yə publish edir.
+- Manual topic konfiqurasiyası (`NewTopic`, `TopicBuilder`)
+- Deklarativ retry konfiqurasiyası (`@RetryableTopic`)
+- Programmatic / imperative retry konfiqurasiyası (`RetryTopicConfigurationBuilder`) üçün nümunə
+- `@RetryableTopic` ilə non-blocking retry qurulması
+- Retry üçün yalnız seçilmiş exception-ların (`RetryableException`) daxil edilməsi
+- Non-retryable exception nümunəsi (`NotRetryableException`)
+- Eksponential backoff davranışı: `200ms -> 600ms -> 1800ms`
+- Retry topic və DLT üçün `numPartitions = 2`, `replicationFactor = 3`
+- DLT mesajlarının `@DltHandler` ilə tutulması
+- Producer tərəfində JSON type header göndərilməsi
+- Consumer tərəfində `ErrorHandlingDeserializer` + `JsonDeserializer` istifadəsi
 
 ## Əsas fayllar
 
-- [src/main/resources/application.yml](/Users/hilalhilalli/Desktop/kafka-example/src/main/resources/application.yml)
-- [src/main/java/ourcorp/kafka/example/config/KafkaConfig.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/config/KafkaConfig.java)
+- [README.md](/Users/hilalhilalli/Desktop/kafka-example/README.md)
+- [src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java)
+- [src/main/java/ourcorp/kafka/example/consumer/UsernameChangedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UsernameChangedConsumer.java)
 - [src/main/java/ourcorp/kafka/example/producer/UserProducer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/producer/UserProducer.java)
-- [src/main/java/ourcorp/kafka/example/consumer/UserConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserConsumer.java)
+- [src/main/java/ourcorp/kafka/example/controller/UserController.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/controller/UserController.java)
+- [src/main/java/ourcorp/kafka/example/config/KafkaConfig.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/config/KafkaConfig.java)
+- [src/main/resources/application.yml](/Users/hilalhilalli/Desktop/kafka-example/src/main/resources/application.yml)
+
+## İstifadə olunan yanaşmalar
+
+Bu layihə bir neçə fərqli konfiqurasiya yanaşmasını eyni yerdə göstərmək məqsədi ilə hazırlanıb:
+
+- Manual topic konfiqurasiyası: `KafkaConfig` içində `NewTopic` bean-ləri ilə əsas topic-lər əl ilə yaradılır
+- Deklarativ non-blocking retry: consumer-lər üzərində `@RetryableTopic` ilə qurulur
+- Programmatic non-blocking retry: `KafkaConfig` içində comment şəklində `RetryTopicConfigurationBuilder` nümunəsi saxlanılıb
+
+Hazırkı aktiv işləyən retry axını annotation əsaslı `@RetryableTopic` mexanizmidir.
+
+## Consumer axınları
+
+### 1. UserCreatedConsumer
+
+[src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java) aşağıdakı konfiqurasiyaya malikdir:
+
+- topic: `user-created-event-topic`
+- group id: `user-created-group`
+- retry edilən exception: `RetryableException`
+- attempts: `4`
+- delay: `200`
+- multiplier: `3`
+- num partitions: `2`
+- replication factor: `3`
+
+Davranış:
+
+- Mesaj əsas topic-də qəbul olunur
+- Listener `RetryableException` atır
+- Mesaj retry topic-lərinə ötürülür
+- Bütün cəhdlər uğursuz olarsa mesaj DLT-yə düşür
+
+### 2. UsernameChangedConsumer
+
+[src/main/java/ourcorp/kafka/example/consumer/UsernameChangedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UsernameChangedConsumer.java) aşağıdakı konfiqurasiyaya malikdir:
+
+- topic: `username-changed-event-topic`
+- group id: `username-changed-group`
+- listener daxilində atılan exception: `NotRetryableException`
+- `@RetryableTopic` daxilində retry yalnız `RetryableException` üçün aktivdir
+- num partitions: `2`
+- replication factor: `3`
+
+Davranış:
+
+- Mesaj əsas topic-də qəbul olunur
+- Listener `NotRetryableException` atır
+- Bu exception `include = {RetryableException.class}` daxilində olmadığı üçün retry olunmur
+- Mesaj birbaşa DLT-yə gedir
 
 ## Texniki axın
 
 ### 1. Producer
 
-`UserProducer` `UserCreatedEvent` obyektini `user-created-event-topic` topic-ə göndərir.
+`UserController` daxil olan HTTP request-i `UserProducer`-ə ötürür.
 
-- Key olaraq random UUID yazılır.
-- `X-USER-ID` custom header əlavə olunur.
-- `JsonSerializer` və `spring.json.add.type.headers=true` səbəbilə type header da yazılır.
+Request:
 
-Bu type header consumer tərəfində JSON-u hansı class-a çevirmək lazım olduğunu müəyyən edir.
+```http
+POST /api/v1/users
+Content-Type: application/json
+```
 
-### 2. Consumer deserialize mərhələsi
+Body nümunəsi:
 
-Consumer konfiqurasiyasında:
+```json
+{
+  "name": "Hilal"
+}
+```
 
-- `value-deserializer=ErrorHandlingDeserializer`
-- delegate kimi `JsonDeserializer`
+`UserProducer` aşağıdakı addımları edir:
 
-Bu o deməkdir ki, JSON parse və ya class-a çevirmə problemi olsa, exception birbaşa consumer thread-i partlatmır. Xəta Spring Kafka error handling mexanizminə ötürülür.
+- `UserCreatedRequest` obyektindən `UserCreatedEvent` yaradır
+- random UUID ilə message key təyin edir
+- `X-USER-ID` header əlavə edir
+- mesajı `user-created-event-topic` topic-inə göndərir
 
-### 3. DefaultErrorHandler
+Username change üçün ayrıca HTTP axını da var:
 
-`KafkaConfig` daxilində:
+```http
+POST /api/v1/users/username-changes
+Content-Type: application/json
+```
 
-- `DefaultErrorHandler`
-- `DeadLetterPublishingRecoverer`
-- `FixedBackOff(500L, 3)`
+Body nümunəsi:
+
+```json
+{
+  "oldUsername": "hilal",
+  "newUsername": "hilal-dev"
+}
+```
+
+Bu endpoint `UsernameChangedRequest` qəbul edir və `username-changed-event-topic` topic-inə `UsernameChangedEvent` göndərir.
+
+`application.yml` daxilində producer üçün:
+
+- `JsonSerializer`
+- `spring.json.add.type.headers=true`
 
 istifadə olunur.
 
-Davranış:
+Bu header consumer tərəfdə payload-un hansı Java class-a deserialize olunacağını müəyyən edir.
 
-- `RetryableException` atılarsa, mesaj 3 dəfə 500 ms intervalla yenidən yoxlanılır.
-- `NotRetryableException` atılarsa, retry olunmur və mesaj birbaşa DLT-yə göndərilir.
-- Deserialize xətası kimi recover edilə bilməyən problemlər də DLT-yə düşə bilər.
+### 2. Non-blocking retry mexanizmi
 
-### 4. DLT
+`@RetryableTopic` blocking retry etmir. Yəni eyni record consumer thread-də uzun müddət saxlanmır.
 
-Problemli mesajlar `user-created-event-topic-dlt` topic-inə yazılır.
-
-Mapping belədir:
+Bunun əvəzinə Spring Kafka mesajı retry topic-lərinə publish edir. `UserCreatedConsumer` üçün axın belə görünür:
 
 - əsas topic: `user-created-event-topic`
-- DLT: `user-created-event-topic-dlt`
-- partition qorunur
+- 1-ci retry topic: `user-created-event-topic-retry-200`
+- 2-ci retry topic: `user-created-event-topic-retry-600`
+- 3-cü retry topic: `user-created-event-topic-retry-1800`
+- son dayanacaq: `user-created-event-topic-dlt`
 
-Bu mapping `DeadLetterPublishingRecoverer` ilə verilib.
+Buradakı delay-lər `delay=200` və `multiplier=3` əsasında yaranır.
+
+`UsernameChangedConsumer` üçün isə listener `NotRetryableException` atdığına görə retry topic-lərinə keçid olmur və mesaj birbaşa DLT-yə yönlənir.
+
+### 3. DLT
+
+Hər iki consumer-də `@DltHandler` mövcuddur:
+
+- `UserCreatedConsumer` DLT-də `UserCreatedEvent` qəbul edir
+- `UsernameChangedConsumer` DLT-də `UsernameChangedEvent` qəbul edir
+
+Hər iki halda original offset log olunur.
+
+## Topic-lər
+
+Layihədə aşağıdakı topic-ləri görəcəksiniz:
+
+- `user-created-event-topic`
+- `user-created-event-topic-retry-200`
+- `user-created-event-topic-retry-600`
+- `user-created-event-topic-retry-1800`
+- `user-created-event-topic-dlt`
+- `username-changed-event-topic`
+- `username-changed-event-topic-dlt`
+
+Qeyd:
+
+- Əsas topic-lər `KafkaConfig` içində manual yaradılır
+- Retry topic-ləri və DLT-lər `@RetryableTopic` tərəfindən avtomatik yaradıla bilər
+- `@RetryableTopic` üzərində `numPartitions = "2"` və `replicationFactor = "3"` verilib
+- `KafkaConfig` içində programmatic retry konfiqurasiyası üçün ayrıca nümunə də saxlanılıb
+
+## Deserialize davranışı
+
+Consumer konfiqurasiyasında aşağıdakılar var:
+
+- `ErrorHandlingDeserializer`
+- delegate olaraq `JsonDeserializer`
+- `spring.json.trusted.packages: "*"`
+
+Bu o deməkdir ki, deserialize xətası listener thread-i birbaşa qırmır və Spring Kafka xəta axınına ötürülür.
+
+Bu repo-nun əsas fokusu business exception retry axını olsa da, JSON parse və type header problemlərini test etmək üçün də baz konfiqurasiya mövcuddur.
 
 ## Necə işə salmaq olar
 
@@ -109,7 +228,7 @@ Bu compose aşağıdakı servisləri qaldırır:
 
 Application default olaraq `8085` portunda açılır.
 
-### 3. Test mesajı göndərin
+### 3. Test request göndərin
 
 ```bash
 curl -X POST http://localhost:8085/api/v1/users \
@@ -117,148 +236,266 @@ curl -X POST http://localhost:8085/api/v1/users \
   -d '{"name":"Hilal"}'
 ```
 
+Bu request `UserCreatedEvent` flow-unu işə salır.
+
+`UsernameChangedEvent` flow üçün:
+
+```bash
+curl -X POST http://localhost:8085/api/v1/users/username-changes \
+  -H "Content-Type: application/json" \
+  -d '{"oldUsername":"hilal","newUsername":"hilal-dev"}'
+```
+
 ## Nəyə baxmaq lazımdır
 
-- Producer mesajı `user-created-event-topic` topic-ə göndərəcək.
-- Consumer normal halda event-i log-a yazacaq.
-- Redpanda Console üzərindən topic və message-ləri izləmək olar: `http://localhost:8081`
+`UserCreatedConsumer` üçün:
 
-## Error handling ssenariləri
+- Producer mesajı əsas topic-ə yazır
+- Consumer mesajı qəbul edir və `RetryableException` atır
+- Mesaj retry topic-lərinə ötürülür
+- Son retry-dan sonra mesaj DLT-yə düşür
+- `@DltHandler` həmin mesajı log edir
 
-Bu repo-da error handling konfiqurasiyası hazırdır. Aşağıdakı ssenarilər həmin konfiqurasiyanın nə etdiyini izah edir.
+`UsernameChangedConsumer` üçün:
 
-### 1. Deserialize xətası
+- Producer mesajı `username-changed-event-topic` topic-inə yazır
+- Consumer mesajı qəbul edir və `NotRetryableException` atır
+- Mesaj retry olmadan birbaşa DLT-yə gedir
+- `@DltHandler` həmin mesajı log edir
 
-Əgər topic-ə uyğun olmayan payload və ya uyğun olmayan type header ilə mesaj düşsə:
+Redpanda Console üzərindən topic və mesajları izləyə bilərsiniz:
 
-- `JsonDeserializer` çevirməni edə bilmir
-- `ErrorHandlingDeserializer` xətanı tutur
-- xəta listener container-a ötürülür
-- `DefaultErrorHandler` recover etməyə çalışır
-- nəticədə mesaj DLT-yə yönləndirilə bilər
+- `http://localhost:8081`
 
-Bu, xüsusilə producer type header göndərmədikdə və ya payload gözlənilən modelə uyğun olmadıqda faydalıdır.
+## Test ssenariləri
 
-### 2. Retryable exception
+### 1. Retryable axın
 
-Əgər listener daxilində biznes xətası müvəqqətidirsə və `RetryableException` atılırsa:
+Heç bir kod dəyişmədən:
 
-- `DefaultErrorHandler` mesajı yenidən emal edir
-- retry sayı: `3`
-- backoff: `500 ms`
-- yenə də uğursuz olarsa mesaj DLT-yə gedir
+- `POST /api/v1/users` request göndərin
+- retry topic-lərinin yarandığını görün
+- mesajın sonda `user-created-event-topic-dlt` topic-inə getdiyini izləyin
 
-Bu ssenari müvəqqəti downstream problem, network timeout və s. üçün uyğundur.
+### 2. Uğurlu emal ssenarisi
 
-### 3. Not retryable exception
+Əgər normal uğurlu emalı görmək istəsəniz, [src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java) daxilində `throw new RetryableException();` sətrini müvəqqəti silə bilərsiniz.
 
-Əgər xəta permanent-dirsə və `NotRetryableException` atılırsa:
+### 3. Non-retryable axın
 
-- retry edilmir
-- mesaj birbaşa DLT-yə göndərilir
+Heç bir kod dəyişmədən:
 
-Bu ssenari validation xətası, korlanmış data və ya biznes qaydasının pozulması üçün uyğundur.
-
-## Vacib qeyd
-
-Hazırkı `UserConsumer` sadəcə event-i log edir. Yəni retry və DLT davranışını real şəkildə görmək üçün listener daxilində test məqsədli exception atmaq və ya topic-ə deserialize olunmayan mesaj göndərmək lazımdır.
-
-Məsələn, demo üçün `handleUserCreated(...)` daxilində müvəqqəti olaraq:
-
-```java
-throw new RetryableException("temporary problem");
-```
-
-və ya
-
-```java
-throw new NotRetryableException("bad payload");
-```
-
-kimi sınaq edilə bilər.
+- `POST /api/v1/users/username-changes` request göndərin
+- mesaj `UsernameChangedConsumer` tərəfindən qəbul olunacaq
+- `NotRetryableException` atılacaq
+- mesaj retry edilmədən birbaşa `username-changed-event-topic-dlt` topic-inə düşəcək
 
 ## Faydalı ünvanlar
 
 - App: `http://localhost:8085`
 - Redpanda Console: `http://localhost:8081`
+- Endpoints: `POST /api/v1/users`, `POST /api/v1/users/username-changes`
 - Main topic: `user-created-event-topic`
-- DLT topic: `user-created-event-topic-dlt`
+- Secondary topic: `username-changed-event-topic`
+- DLT topics: `user-created-event-topic-dlt`, `username-changed-event-topic-dlt`
 
 ---
 
 ## EN
 
-# Kafka Error Handling Demo
+# Kafka Non-Blocking Retry and DLT Demo
 
-This project is a simple Spring Kafka example focused on `ErrorHandlingDeserializer`, `DefaultErrorHandler`, and Dead Letter Topic (DLT) behavior.
+This project is a simple Spring Kafka example that demonstrates non-blocking retry and Dead Letter Topic (DLT) handling with `@RetryableTopic`.
 
-The main flow is:
+The repository now contains two different consumer flows:
 
-- The producer sends JSON messages to `user-created-event-topic`.
-- The consumer deserializes messages with `ErrorHandlingDeserializer`.
-- If deserialization or processing fails, Spring Kafka delegates the failure to `DefaultErrorHandler`.
-- Retryable failures are retried.
-- Non-retryable or exhausted failures are published to `user-created-event-topic-dlt`.
+- `UserCreatedConsumer` demonstrates the retryable scenario
+- `UsernameChangedConsumer` demonstrates the non-retryable scenario
+
+So the same project shows both a retried failure and a direct-to-DLT failure.
 
 ## What this project demonstrates
 
-- `ErrorHandlingDeserializer` wraps deserialization failures and lets Spring Kafka handle them safely.
-- `JsonDeserializer` is used as the delegate deserializer.
-- The producer sends type headers with `spring.json.add.type.headers=true`.
-- `DefaultErrorHandler` retries with `FixedBackOff(500ms, 3)`.
-- `RetryableException` is configured as retryable.
-- `NotRetryableException` is configured as non-retryable.
-- `DeadLetterPublishingRecoverer` publishes failed records to the DLT on the same partition.
+- Manual topic configuration (`NewTopic`, `TopicBuilder`)
+- Declarative retry configuration with `@RetryableTopic`
+- A programmatic / imperative retry sample with `RetryTopicConfigurationBuilder`
+- Non-blocking retry with `@RetryableTopic`
+- Retry only for selected exceptions (`RetryableException`)
+- A non-retryable exception example (`NotRetryableException`)
+- Exponential backoff behavior: `200ms -> 600ms -> 1800ms`
+- `numPartitions = 2` and `replicationFactor = 3` for retry and DLT topics
+- DLT handling with `@DltHandler`
+- Producer-side JSON type headers
+- Consumer-side `ErrorHandlingDeserializer` + `JsonDeserializer`
 
 ## Main files
 
-- [src/main/resources/application.yml](/Users/hilalhilalli/Desktop/kafka-example/src/main/resources/application.yml)
-- [src/main/java/ourcorp/kafka/example/config/KafkaConfig.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/config/KafkaConfig.java)
+- [README.md](/Users/hilalhilalli/Desktop/kafka-example/README.md)
+- [src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java)
+- [src/main/java/ourcorp/kafka/example/consumer/UsernameChangedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UsernameChangedConsumer.java)
 - [src/main/java/ourcorp/kafka/example/producer/UserProducer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/producer/UserProducer.java)
-- [src/main/java/ourcorp/kafka/example/consumer/UserConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserConsumer.java)
+- [src/main/java/ourcorp/kafka/example/controller/UserController.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/controller/UserController.java)
+- [src/main/java/ourcorp/kafka/example/config/KafkaConfig.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/config/KafkaConfig.java)
+- [src/main/resources/application.yml](/Users/hilalhilalli/Desktop/kafka-example/src/main/resources/application.yml)
+
+## Approaches used in this project
+
+This repository is intentionally structured to show multiple configuration styles in one place:
+
+- Manual topic configuration: the main topics are created explicitly in `KafkaConfig` with `NewTopic` beans
+- Declarative non-blocking retry: configured on consumers with `@RetryableTopic`
+- Programmatic non-blocking retry: an example based on `RetryTopicConfigurationBuilder` is kept in `KafkaConfig` as reference
+
+The active retry flow in the current implementation is the annotation-based `@RetryableTopic` mechanism.
+
+## Consumer flows
+
+### 1. UserCreatedConsumer
+
+[src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java) is configured with:
+
+- topic: `user-created-event-topic`
+- group id: `user-created-group`
+- retryable exception: `RetryableException`
+- attempts: `4`
+- delay: `200`
+- multiplier: `3`
+- num partitions: `2`
+- replication factor: `3`
+
+Behavior:
+
+- The message is consumed from the main topic
+- The listener throws `RetryableException`
+- The record is forwarded to retry topics
+- If all attempts fail, the record is sent to the DLT
+
+### 2. UsernameChangedConsumer
+
+[src/main/java/ourcorp/kafka/example/consumer/UsernameChangedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UsernameChangedConsumer.java) is configured with:
+
+- topic: `username-changed-event-topic`
+- group id: `username-changed-group`
+- exception thrown by the listener: `NotRetryableException`
+- retry is enabled only for `RetryableException` in `@RetryableTopic`
+- num partitions: `2`
+- replication factor: `3`
+
+Behavior:
+
+- The message is consumed from the main topic
+- The listener throws `NotRetryableException`
+- Because that exception is not included in `include = {RetryableException.class}`, no retry happens
+- The record goes directly to the DLT
 
 ## Technical flow
 
 ### 1. Producer
 
-`UserProducer` sends a `UserCreatedEvent` to `user-created-event-topic`.
+`UserController` accepts the HTTP request and forwards it to `UserProducer`.
 
-- A random UUID is used as the key.
-- A custom `X-USER-ID` header is added.
-- Type headers are also added by the JSON serializer.
+Request:
 
-Those type headers help the consumer understand which Java class the payload should be converted to.
+```http
+POST /api/v1/users
+Content-Type: application/json
+```
 
-### 2. Consumer deserialization stage
+Example body:
 
-The consumer is configured with:
+```json
+{
+  "name": "Hilal"
+}
+```
+
+`UserProducer` then:
+
+- builds a `UserCreatedEvent` from `UserCreatedRequest`
+- generates a random UUID as the message key
+- adds the `X-USER-ID` header
+- sends the message to `user-created-event-topic`
+
+There is also a separate HTTP flow for username changes:
+
+```http
+POST /api/v1/users/username-changes
+Content-Type: application/json
+```
+
+Example body:
+
+```json
+{
+  "oldUsername": "hilal",
+  "newUsername": "hilal-dev"
+}
+```
+
+That endpoint accepts `UsernameChangedRequest` and publishes `UsernameChangedEvent` to `username-changed-event-topic`.
+
+In [src/main/resources/application.yml](/Users/hilalhilalli/Desktop/kafka-example/src/main/resources/application.yml), the producer uses:
+
+- `JsonSerializer`
+- `spring.json.add.type.headers=true`
+
+Those headers help the consumer deserialize the payload into the expected Java class.
+
+### 2. Non-blocking retry mechanism
+
+`@RetryableTopic` does not perform blocking retry in the same consumer thread. Instead, Spring Kafka republishes the failed record to retry topics.
+
+For `UserCreatedConsumer`, the practical flow looks like this:
+
+- main topic: `user-created-event-topic`
+- first retry topic: `user-created-event-topic-retry-200`
+- second retry topic: `user-created-event-topic-retry-600`
+- third retry topic: `user-created-event-topic-retry-1800`
+- final destination: `user-created-event-topic-dlt`
+
+Those delay values are derived from `delay=200` and `multiplier=3`.
+
+For `UsernameChangedConsumer`, the listener throws `NotRetryableException`, so the record does not move through retry topics and is sent directly to the DLT.
+
+### 3. DLT
+
+Both consumers define a `@DltHandler`:
+
+- `UserCreatedConsumer` handles `UserCreatedEvent` from its DLT
+- `UsernameChangedConsumer` handles `UsernameChangedEvent` from its DLT
+
+In both cases, the original offset is logged.
+
+## Topics
+
+You will see the following topics in this project:
+
+- `user-created-event-topic`
+- `user-created-event-topic-retry-200`
+- `user-created-event-topic-retry-600`
+- `user-created-event-topic-retry-1800`
+- `user-created-event-topic-dlt`
+- `username-changed-event-topic`
+- `username-changed-event-topic-dlt`
+
+Notes:
+
+- The main topics are created manually in `KafkaConfig`
+- Retry topics and DLTs can be auto-created by `@RetryableTopic`
+- `@RetryableTopic` is configured with `numPartitions = "2"` and `replicationFactor = "3"`
+- The same config class also contains a programmatic retry example for reference
+
+## Deserialization behavior
+
+The consumer configuration includes:
 
 - `ErrorHandlingDeserializer`
 - delegated `JsonDeserializer`
+- `spring.json.trusted.packages: "*"`
 
-This means deserialization problems are routed into Spring Kafka's error-handling flow instead of crashing message consumption directly.
+This means deserialization failures are pushed into Spring Kafka's error-handling path instead of crashing the listener directly.
 
-### 3. DefaultErrorHandler
-
-In `KafkaConfig`, the project defines:
-
-- `DefaultErrorHandler`
-- `DeadLetterPublishingRecoverer`
-- `FixedBackOff(500L, 3)`
-
-Behavior:
-
-- `RetryableException` is retried 3 times with a 500 ms backoff.
-- `NotRetryableException` is not retried and is sent directly to the DLT.
-- Deserialization failures can also end up in the DLT if they cannot be recovered.
-
-### 4. DLT
-
-Failed records are published to `user-created-event-topic-dlt`.
-
-- source topic: `user-created-event-topic`
-- DLT: `user-created-event-topic-dlt`
-- partition is preserved
+Even though the main focus of this repository is retry behavior for business exceptions, the base deserialization setup is also in place for malformed JSON or wrong type-header scenarios.
 
 ## How to run
 
@@ -296,59 +533,65 @@ curl -X POST http://localhost:8085/api/v1/users \
   -d '{"name":"Hilal"}'
 ```
 
+This request triggers the `UserCreatedEvent` flow.
+
+For the `UsernameChangedEvent` flow:
+
+```bash
+curl -X POST http://localhost:8085/api/v1/users/username-changes \
+  -H "Content-Type: application/json" \
+  -d '{"oldUsername":"hilal","newUsername":"hilal-dev"}'
+```
+
 ## What to observe
 
-- The producer writes to `user-created-event-topic`.
-- The consumer logs the event in the normal flow.
-- You can inspect topics and messages in Redpanda Console: `http://localhost:8081`
+For `UserCreatedConsumer`:
 
-## Error handling scenarios
+- The producer writes to the main topic
+- The consumer reads the record and throws `RetryableException`
+- The record is forwarded through retry topics
+- After the final retry, the record is published to the DLT
+- `@DltHandler` logs the DLT message
 
-### 1. Deserialization failure
+For `UsernameChangedConsumer`:
 
-If a malformed payload or incompatible type header is sent to the topic:
+- The producer writes to `username-changed-event-topic`
+- The consumer reads the record and throws `NotRetryableException`
+- The record goes directly to the DLT without retry
+- `@DltHandler` logs the DLT message
 
-- `JsonDeserializer` fails
-- `ErrorHandlingDeserializer` captures the failure
-- the error is passed to the container
-- `DefaultErrorHandler` handles recovery
-- the record may be published to the DLT
+You can inspect topics and messages in Redpanda Console:
 
-### 2. Retryable exception
+- `http://localhost:8081`
 
-If the listener throws `RetryableException`:
+## Test scenarios
 
-- Spring Kafka retries processing
-- retry count: `3`
-- backoff: `500 ms`
-- if it still fails, the record is sent to the DLT
+### 1. Retryable flow
 
-### 3. Non-retryable exception
+Without changing any code:
 
-If the listener throws `NotRetryableException`:
+- send `POST /api/v1/users`
+- observe retry topic creation
+- observe the record eventually reaching `user-created-event-topic-dlt`
 
-- no retry happens
-- the record is sent directly to the DLT
+### 2. Successful processing scenario
 
-## Important note
+If you want to see the successful path, temporarily remove `throw new RetryableException();` from [src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserCreatedConsumer.java).
 
-The current `UserConsumer` only logs the event. To observe retry and DLT behavior directly, you need to temporarily throw a test exception inside the listener or publish a message that cannot be deserialized.
+### 3. Non-retryable flow
 
-Example:
+Without changing any code:
 
-```java
-throw new RetryableException("temporary problem");
-```
-
-or:
-
-```java
-throw new NotRetryableException("bad payload");
-```
+- send `POST /api/v1/users/username-changes`
+- the message is consumed by `UsernameChangedConsumer`
+- `NotRetryableException` is thrown
+- the record is sent directly to `username-changed-event-topic-dlt` without retry
 
 ## Useful endpoints
 
 - App: `http://localhost:8085`
 - Redpanda Console: `http://localhost:8081`
+- Endpoints: `POST /api/v1/users`, `POST /api/v1/users/username-changes`
 - Main topic: `user-created-event-topic`
-- DLT topic: `user-created-event-topic-dlt`
+- Secondary topic: `username-changed-event-topic`
+- DLT topics: `user-created-event-topic-dlt`, `username-changed-event-topic-dlt`
