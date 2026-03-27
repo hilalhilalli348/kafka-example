@@ -1,7 +1,5 @@
 > Language / Dil: [AZ](#az) | [EN](#en)
 
----
-
 ## AZ
 
 # Kafka Outbox Pattern Demo
