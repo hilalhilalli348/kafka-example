@@ -1,0 +1,8 @@
+{
+  "type": "record",
+  "name": "UserCreatedEvent",
+  "namespace": "ourcorp.kafka.example.model.event",
+  "fields": [
+    { "name": "name", "type": "string" }
+  ]
+}

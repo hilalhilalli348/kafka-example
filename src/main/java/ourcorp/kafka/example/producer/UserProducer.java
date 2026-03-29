@@ -19,7 +19,7 @@ public class UserProducer {
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
     public void createUser(UserCreatedRequest request) {
-        var event = UserCreatedEvent.builder().name(request.getName()).build();
+        var event = UserCreatedEvent.newBuilder().setName(request.getName()).build();
         var uuid = UUID.randomUUID().toString();
 
         Message<UserCreatedEvent> message = MessageBuilder
