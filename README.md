@@ -2,84 +2,101 @@
 
 ## AZ
 
-# Kafka Error Handling Demo
+# Kafka Schema Registry Demo
 
-Bu layihə Spring Kafka-da `ErrorHandlingDeserializer`, `DefaultErrorHandler` və `Dead Letter Topic (DLT)` axınının necə işlədiyini göstərən sadə nümunədir.
+Bu layihə Apache Kafka, Avro və Confluent Schema Registry inteqrasiyasını göstərən sadə Spring Boot nümunəsidir.
 
 Burada əsas fikir budur:
 
-- Producer `user-created-event-topic` topic-ə JSON event göndərir.
-- Consumer mesajı `ErrorHandlingDeserializer` ilə deserialize edir.
-- Deserialize və ya processing zamanı xəta baş verərsə, Spring Kafka `DefaultErrorHandler`-ı işə salır.
-- Retry olunmalı xətalar bir neçə dəfə yenidən yoxlanılır.
-- Retry olunmayan və ya retry limitini keçən mesajlar `user-created-event-topic-dlt` topic-inə yönləndirilir.
+- Producer `user-created-event-topic` topic-ə Avro formatında `UserCreatedEvent` göndərir.
+- Mesaj göndərilən anda schema Schema Registry-də saxlanılır və ya mövcud schema ilə yoxlanılır.
+- Consumer mesajı `KafkaAvroDeserializer` ilə oxuyur və birbaşa generated Avro class-a çevirir.
+- Əgər mesaj korlanıbsa və ya Avro formatına uyğun deyilsə, `DefaultErrorHandler` onu idarə edir.
+- Poison pill tipli mesajlar `user-created-event-topic-dlt` topic-inə yönləndirilə bilər.
 
 ## Layihədə nə göstərilir
 
 Bu repo aşağıdakı davranışları göstərmək üçün hazırlanıb:
 
-- `ErrorHandlingDeserializer` deserialize xətasını listener-i tam qırmadan idarə edir.
-- `JsonDeserializer` istifadə olunur və producer mesaj header-larında type məlumatı göndərir.
-- `DefaultErrorHandler` `FixedBackOff(500ms, 3)` ilə retry edir.
-- `RetryableException` retry edilən exception kimi qeyd olunub.
-- `NotRetryableException` retry edilmədən reject olunan exception kimi qeyd olunub.
-- `DeadLetterPublishingRecoverer` problemli mesajı eyni partition üzrə DLT-yə publish edir.
+- Spring Kafka producer tərəfdə `KafkaAvroSerializer` istifadə edir.
+- Consumer tərəfdə `KafkaAvroDeserializer` və `specific.avro.reader=true` ilə specific Avro record oxunur.
+- Avro schema `src/main/avro/UserCreatedEvent.avsc` faylından generasiya olunur.
+- Schema Registry URL tətbiq konfiqurasiyasında ayrıca verilir.
+- 3 broker-li Kafka cluster, ayrıca Schema Registry və Schema Registry UI docker-compose ilə qaldırılır.
+- `DefaultErrorHandler` və DLT konfiqurasiyası korlanmış və ya deserialize olunmayan mesajların consumer-i bloklamamasını göstərir.
 
 ## Əsas fayllar
 
+- [src/main/avro/UserCreatedEvent.avsc](/Users/hilalhilalli/Desktop/kafka-example/src/main/avro/UserCreatedEvent.avsc)
 - [src/main/resources/application.yml](/Users/hilalhilalli/Desktop/kafka-example/src/main/resources/application.yml)
 - [src/main/java/ourcorp/kafka/example/config/KafkaConfig.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/config/KafkaConfig.java)
 - [src/main/java/ourcorp/kafka/example/producer/UserProducer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/producer/UserProducer.java)
 - [src/main/java/ourcorp/kafka/example/consumer/UserConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserConsumer.java)
+- [docker-compose.yml](/Users/hilalhilalli/Desktop/kafka-example/docker-compose.yml)
 
 ## Texniki axın
 
-### 1. Producer
+### 1. Avro schema
 
-`UserProducer` `UserCreatedEvent` obyektini `user-created-event-topic` topic-ə göndərir.
+`UserCreatedEvent` schema-sı `src/main/avro/UserCreatedEvent.avsc` daxilində saxlanılır.
+
+- Schema bir `record` tipidir.
+- Namespace: `ourcorp.kafka.example.model.event`
+- Field: `name`
+
+Gradle-də Avro plugin istifadə olunduğu üçün build zamanı bu schema-dan Java class generasiya olunur.
+
+### 2. Producer
+
+`UserProducer` REST request-dən gələn datanı `UserCreatedEvent` obyektinə çevirib `user-created-event-topic` topic-ə göndərir.
 
 - Key olaraq random UUID yazılır.
 - `X-USER-ID` custom header əlavə olunur.
-- `JsonSerializer` və `spring.json.add.type.headers=true` səbəbilə type header da yazılır.
+- Value serializer olaraq `io.confluent.kafka.serializers.KafkaAvroSerializer` istifadə edilir.
 
-Bu type header consumer tərəfində JSON-u hansı class-a çevirmək lazım olduğunu müəyyən edir.
+Bu serializer payload-u Avro formatında Kafka-ya yazır və schema-nı Schema Registry ilə əlaqələndirir.
 
-### 2. Consumer deserialize mərhələsi
+### 3. Schema Registry
+
+Schema Registry Kafka mesajlarının schema idarəsini mərkəzləşdirir.
+
+Bu layihədə:
+
+- Schema Registry `http://localhost:8082` ünvanında işləyir.
+- Producer mesaj göndərərkən schema-nı registry-ə qeyd edir və ya uyğunluğunu yoxlayır.
+- Consumer həmin schema metadata əsasında payload-u düzgün record tipinə çevirir.
+
+Bu yanaşma producer və consumer arasında data kontraktını daha təhlükəsiz saxlayır.
+
+### 4. Consumer
 
 Consumer konfiqurasiyasında:
 
-- `value-deserializer=ErrorHandlingDeserializer`
-- delegate kimi `JsonDeserializer`
+- `ErrorHandlingDeserializer`
+- delegate kimi `KafkaAvroDeserializer`
+- `specific.avro.reader=true`
 
-Bu o deməkdir ki, JSON parse və ya class-a çevirmə problemi olsa, exception birbaşa consumer thread-i partlatmır. Xəta Spring Kafka error handling mexanizminə ötürülür.
+istifadə olunur.
 
-### 3. DefaultErrorHandler
+Nəticə olaraq consumer mesajı generic obyekt kimi deyil, birbaşa `UserCreatedEvent` kimi qəbul edir.
+
+### 5. Error handling və DLT
 
 `KafkaConfig` daxilində:
 
 - `DefaultErrorHandler`
 - `DeadLetterPublishingRecoverer`
-- `FixedBackOff(500L, 3)`
+- `FixedBackOff(500ms, 2)`
 
 istifadə olunur.
 
-Davranış:
+Əgər consumer Avro mesajını deserialize edə bilmirsə, məsələn "unknown magic byte" kimi problem yaranırsa:
 
-- `RetryableException` atılarsa, mesaj 3 dəfə 500 ms intervalla yenidən yoxlanılır.
-- `NotRetryableException` atılarsa, retry olunmur və mesaj birbaşa DLT-yə göndərilir.
-- Deserialize xətası kimi recover edilə bilməyən problemlər də DLT-yə düşə bilər.
+- exception retry olunmur
+- mesaj consumer axınını bloklamır
+- record `user-created-event-topic-dlt` topic-inə yönləndirilir
 
-### 4. DLT
-
-Problemli mesajlar `user-created-event-topic-dlt` topic-inə yazılır.
-
-Mapping belədir:
-
-- əsas topic: `user-created-event-topic`
-- DLT: `user-created-event-topic-dlt`
-- partition qorunur
-
-Bu mapping `DeadLetterPublishingRecoverer` ilə verilib.
+DLT üçün ayrıca `ByteArraySerializer` istifadə olunur ki, korlanmış payload-u raw şəkildə publish etmək mümkün olsun.
 
 ## Necə işə salmaq olar
 
@@ -88,7 +105,7 @@ Bu mapping `DeadLetterPublishingRecoverer` ilə verilib.
 - Java 21
 - Docker / Docker Compose
 
-### 1. Kafka mühitini başladın
+### 1. Kafka və Schema Registry mühitini başladın
 
 ```bash
 docker-compose up -d
@@ -99,6 +116,8 @@ Bu compose aşağıdakı servisləri qaldırır:
 - `kafka1`
 - `kafka2`
 - `kafka3`
+- `schema-registry`
+- `schema-registry-ui`
 - `redpanda-console`
 
 ### 2. Tətbiqi başladın
@@ -107,79 +126,67 @@ Bu compose aşağıdakı servisləri qaldırır:
 ./gradlew bootRun
 ```
 
-Application default olaraq `8085` portunda açılır.
+Application default olaraq `8080` portunda açılır.
 
 ### 3. Test mesajı göndərin
 
 ```bash
-curl -X POST http://localhost:8085/api/v1/users \
+curl -X POST http://localhost:8080/api/v1/users \
   -H "Content-Type: application/json" \
   -d '{"name":"Hilal"}'
 ```
 
 ## Nəyə baxmaq lazımdır
 
-- Producer mesajı `user-created-event-topic` topic-ə göndərəcək.
-- Consumer normal halda event-i log-a yazacaq.
+- Producer `user-created-event-topic` topic-ə Avro event göndərəcək.
+- Consumer mesajı `UserCreatedEvent` kimi oxuyub log-a yazacaq.
+- Schema Registry daxilində bu event üçün schema qeyd olunacaq.
 - Redpanda Console üzərindən topic və message-ləri izləmək olar: `http://localhost:8081`
+- Schema Registry UI üzərindən subject və schema-lara baxmaq olar: `http://localhost:8000`
 
-## Error handling ssenariləri
+## Schema Registry ssenariləri
 
-Bu repo-da error handling konfiqurasiyası hazırdır. Aşağıdakı ssenarilər həmin konfiqurasiyanın nə etdiyini izah edir.
+Bu repo Schema Registry istifadəsinin əsas davranışlarını göstərmək üçün uyğundur.
 
-### 1. Deserialize xətası
+### 1. Normal Avro publish/consume
 
-Əgər topic-ə uyğun olmayan payload və ya uyğun olmayan type header ilə mesaj düşsə:
+Əgər producer düzgün `UserCreatedEvent` göndərirsə:
 
-- `JsonDeserializer` çevirməni edə bilmir
+- schema registry-də subject yaranır
+- mesaj topic-ə Avro binary formatında yazılır
+- consumer onu `UserCreatedEvent` kimi uğurla oxuyur
+
+### 2. Schema əsaslı kontrakt idarəsi
+
+Avro schema payload strukturunu əvvəlcədən müəyyənləşdirir.
+
+Bu o deməkdir ki:
+
+- producer sərbəst JSON deyil, schema ilə məhdudlaşmış event göndərir
+- consumer də eyni kontrakta əsasən deserialize edir
+- event formatı daha idarəolunan olur
+
+Bu yanaşma xüsusilə servis-lərarası event müqaviləsi üçün faydalıdır.
+
+### 3. Poison pill / deserialize problemi
+
+Əgər topic-ə Avro olmayan və ya korlanmış mesaj düşərsə:
+
 - `ErrorHandlingDeserializer` xətanı tutur
-- xəta listener container-a ötürülür
-- `DefaultErrorHandler` recover etməyə çalışır
-- nəticədə mesaj DLT-yə yönləndirilə bilər
+- `DefaultErrorHandler` problemi emal edir
+- deserialize xətası retry edilmədən DLT-yə yönləndirilə bilər
 
-Bu, xüsusilə producer type header göndərmədikdə və ya payload gözlənilən modelə uyğun olmadıqda faydalıdır.
-
-### 2. Retryable exception
-
-Əgər listener daxilində biznes xətası müvəqqətidirsə və `RetryableException` atılırsa:
-
-- `DefaultErrorHandler` mesajı yenidən emal edir
-- retry sayı: `3`
-- backoff: `500 ms`
-- yenə də uğursuz olarsa mesaj DLT-yə gedir
-
-Bu ssenari müvəqqəti downstream problem, network timeout və s. üçün uyğundur.
-
-### 3. Not retryable exception
-
-Əgər xəta permanent-dirsə və `NotRetryableException` atılırsa:
-
-- retry edilmir
-- mesaj birbaşa DLT-yə göndərilir
-
-Bu ssenari validation xətası, korlanmış data və ya biznes qaydasının pozulması üçün uyğundur.
+Bu, consumer qrupunun bir dənə pis mesaj üzündən dayanmasının qarşısını alır.
 
 ## Vacib qeyd
 
-Hazırkı `UserConsumer` sadəcə event-i log edir. Yəni retry və DLT davranışını real şəkildə görmək üçün listener daxilində test məqsədli exception atmaq və ya topic-ə deserialize olunmayan mesaj göndərmək lazımdır.
-
-Məsələn, demo üçün `handleUserCreated(...)` daxilində müvəqqəti olaraq:
-
-```java
-throw new RetryableException("temporary problem");
-```
-
-və ya
-
-```java
-throw new NotRetryableException("bad payload");
-```
-
-kimi sınaq edilə bilər.
+Hazırkı `UserConsumer` sadəcə event-i log edir. Bu repo-nun əsas fokus nöqtəsi biznes məntiqindən çox Schema Registry inteqrasiyası, specific Avro deserialization və problemli mesajların idarəsidir.
 
 ## Faydalı ünvanlar
 
-- App: `http://localhost:8085`
+- App: `http://localhost:8080`
+- Schema Registry: `http://localhost:8082`
+- Schema Registry UI: `http://localhost:8000`
 - Redpanda Console: `http://localhost:8081`
 - Main topic: `user-created-event-topic`
 - DLT topic: `user-created-event-topic-dlt`
@@ -188,77 +195,95 @@ kimi sınaq edilə bilər.
 
 ## EN
 
-# Kafka Error Handling Demo
+# Kafka Schema Registry Demo
 
-This project is a simple Spring Kafka example focused on `ErrorHandlingDeserializer`, `DefaultErrorHandler`, and Dead Letter Topic (DLT) behavior.
+This project is a simple Spring Boot example that demonstrates Apache Kafka, Avro, and Confluent Schema Registry integration.
 
 The main flow is:
 
-- The producer sends JSON messages to `user-created-event-topic`.
-- The consumer deserializes messages with `ErrorHandlingDeserializer`.
-- If deserialization or processing fails, Spring Kafka delegates the failure to `DefaultErrorHandler`.
-- Retryable failures are retried.
-- Non-retryable or exhausted failures are published to `user-created-event-topic-dlt`.
+- The producer sends an Avro `UserCreatedEvent` to `user-created-event-topic`.
+- While sending, the schema is registered in Schema Registry or validated against an existing one.
+- The consumer reads the message with `KafkaAvroDeserializer` and converts it into a generated Avro class.
+- If the message is corrupted or not in valid Avro format, `DefaultErrorHandler` handles the failure.
+- Poison pill records can be routed to `user-created-event-topic-dlt`.
 
 ## What this project demonstrates
 
-- `ErrorHandlingDeserializer` wraps deserialization failures and lets Spring Kafka handle them safely.
-- `JsonDeserializer` is used as the delegate deserializer.
-- The producer sends type headers with `spring.json.add.type.headers=true`.
-- `DefaultErrorHandler` retries with `FixedBackOff(500ms, 3)`.
-- `RetryableException` is configured as retryable.
-- `NotRetryableException` is configured as non-retryable.
-- `DeadLetterPublishingRecoverer` publishes failed records to the DLT on the same partition.
+- Spring Kafka producer uses `KafkaAvroSerializer`.
+- Consumer uses `KafkaAvroDeserializer` with `specific.avro.reader=true` to read a specific Avro record.
+- The Avro schema is defined in `src/main/avro/UserCreatedEvent.avsc`.
+- Schema Registry is configured explicitly in application properties.
+- A 3-broker Kafka cluster, Schema Registry, and Schema Registry UI are started via docker-compose.
+- `DefaultErrorHandler` and DLT configuration prevent broken messages from blocking consumption.
 
 ## Main files
 
+- [src/main/avro/UserCreatedEvent.avsc](/Users/hilalhilalli/Desktop/kafka-example/src/main/avro/UserCreatedEvent.avsc)
 - [src/main/resources/application.yml](/Users/hilalhilalli/Desktop/kafka-example/src/main/resources/application.yml)
 - [src/main/java/ourcorp/kafka/example/config/KafkaConfig.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/config/KafkaConfig.java)
 - [src/main/java/ourcorp/kafka/example/producer/UserProducer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/producer/UserProducer.java)
 - [src/main/java/ourcorp/kafka/example/consumer/UserConsumer.java](/Users/hilalhilalli/Desktop/kafka-example/src/main/java/ourcorp/kafka/example/consumer/UserConsumer.java)
+- [docker-compose.yml](/Users/hilalhilalli/Desktop/kafka-example/docker-compose.yml)
 
 ## Technical flow
 
-### 1. Producer
+### 1. Avro schema
 
-`UserProducer` sends a `UserCreatedEvent` to `user-created-event-topic`.
+The `UserCreatedEvent` schema is defined in `src/main/avro/UserCreatedEvent.avsc`.
+
+- It is an Avro `record`
+- Namespace: `ourcorp.kafka.example.model.event`
+- Field: `name`
+
+The Gradle Avro plugin generates the Java class from this schema during build time.
+
+### 2. Producer
+
+`UserProducer` converts the REST payload into a `UserCreatedEvent` and sends it to `user-created-event-topic`.
 
 - A random UUID is used as the key.
 - A custom `X-USER-ID` header is added.
-- Type headers are also added by the JSON serializer.
+- `io.confluent.kafka.serializers.KafkaAvroSerializer` is used as the value serializer.
 
-Those type headers help the consumer understand which Java class the payload should be converted to.
+This serializer writes the payload in Avro format and associates the schema with Schema Registry.
 
-### 2. Consumer deserialization stage
+### 3. Schema Registry
+
+Schema Registry centralizes schema management for Kafka messages.
+
+In this project:
+
+- Schema Registry runs at `http://localhost:8082`
+- The producer registers the schema or checks compatibility when publishing
+- The consumer uses schema metadata to deserialize the payload into the correct record type
+
+This makes the data contract between producer and consumer more reliable.
+
+### 4. Consumer
 
 The consumer is configured with:
 
 - `ErrorHandlingDeserializer`
-- delegated `JsonDeserializer`
+- delegated `KafkaAvroDeserializer`
+- `specific.avro.reader=true`
 
-This means deserialization problems are routed into Spring Kafka's error-handling flow instead of crashing message consumption directly.
+As a result, the listener receives `UserCreatedEvent` directly instead of a generic object.
 
-### 3. DefaultErrorHandler
+### 5. Error handling and DLT
 
-In `KafkaConfig`, the project defines:
+Inside `KafkaConfig`, the project uses:
 
 - `DefaultErrorHandler`
 - `DeadLetterPublishingRecoverer`
-- `FixedBackOff(500L, 3)`
+- `FixedBackOff(500ms, 2)`
 
-Behavior:
+If the consumer cannot deserialize a record, for example due to an "unknown magic byte" problem:
 
-- `RetryableException` is retried 3 times with a 500 ms backoff.
-- `NotRetryableException` is not retried and is sent directly to the DLT.
-- Deserialization failures can also end up in the DLT if they cannot be recovered.
+- the exception is not retried
+- consumption is not blocked
+- the record can be published to `user-created-event-topic-dlt`
 
-### 4. DLT
-
-Failed records are published to `user-created-event-topic-dlt`.
-
-- source topic: `user-created-event-topic`
-- DLT: `user-created-event-topic-dlt`
-- partition is preserved
+A separate DLT producer uses `ByteArraySerializer` so corrupted payloads can still be forwarded as raw bytes.
 
 ## How to run
 
@@ -267,88 +292,88 @@ Failed records are published to `user-created-event-topic-dlt`.
 - Java 21
 - Docker / Docker Compose
 
-### 1. Start Kafka infrastructure
+### 1. Start Kafka and Schema Registry
 
 ```bash
 docker-compose up -d
 ```
 
-This starts:
+This compose file starts:
 
 - `kafka1`
 - `kafka2`
 - `kafka3`
+- `schema-registry`
+- `schema-registry-ui`
 - `redpanda-console`
 
-### 2. Run the application
+### 2. Start the application
 
 ```bash
 ./gradlew bootRun
 ```
 
-The app runs on port `8085`.
+The application runs on port `8080`.
 
-### 3. Send a test request
+### 3. Send a test message
 
 ```bash
-curl -X POST http://localhost:8085/api/v1/users \
+curl -X POST http://localhost:8080/api/v1/users \
   -H "Content-Type: application/json" \
   -d '{"name":"Hilal"}'
 ```
 
-## What to observe
+## What to check
 
-- The producer writes to `user-created-event-topic`.
-- The consumer logs the event in the normal flow.
+- The producer sends an Avro event to `user-created-event-topic`
+- The consumer logs the message as `UserCreatedEvent`
+- A schema subject is created in Schema Registry
 - You can inspect topics and messages in Redpanda Console: `http://localhost:8081`
+- You can inspect subjects and schemas in Schema Registry UI: `http://localhost:8000`
 
-## Error handling scenarios
+## Schema Registry scenarios
 
-### 1. Deserialization failure
+This repository is a good example of the main Schema Registry behaviors.
 
-If a malformed payload or incompatible type header is sent to the topic:
+### 1. Normal Avro publish/consume
 
-- `JsonDeserializer` fails
-- `ErrorHandlingDeserializer` captures the failure
-- the error is passed to the container
-- `DefaultErrorHandler` handles recovery
-- the record may be published to the DLT
+If the producer sends a valid `UserCreatedEvent`:
 
-### 2. Retryable exception
+- a subject is created in Schema Registry
+- the message is written to Kafka in Avro binary format
+- the consumer reads it successfully as `UserCreatedEvent`
 
-If the listener throws `RetryableException`:
+### 2. Schema-based contract management
 
-- Spring Kafka retries processing
-- retry count: `3`
-- backoff: `500 ms`
-- if it still fails, the record is sent to the DLT
+The Avro schema defines the payload structure up front.
 
-### 3. Non-retryable exception
+That means:
 
-If the listener throws `NotRetryableException`:
+- the producer does not send arbitrary JSON, but a schema-bound event
+- the consumer deserializes against the same contract
+- the event format becomes easier to govern
 
-- no retry happens
-- the record is sent directly to the DLT
+This is especially useful for service-to-service event contracts.
+
+### 3. Poison pill / deserialization issue
+
+If a non-Avro or corrupted record is written into the topic:
+
+- `ErrorHandlingDeserializer` catches the failure
+- `DefaultErrorHandler` processes the error
+- the deserialization failure can be sent to DLT without retry
+
+This prevents a single bad record from stopping the consumer group.
 
 ## Important note
 
-The current `UserConsumer` only logs the event. To observe retry and DLT behavior directly, you need to temporarily throw a test exception inside the listener or publish a message that cannot be deserialized.
-
-Example:
-
-```java
-throw new RetryableException("temporary problem");
-```
-
-or:
-
-```java
-throw new NotRetryableException("bad payload");
-```
+The current `UserConsumer` only logs the event. The main focus of this repository is Schema Registry integration, specific Avro deserialization, and safe handling of problematic records rather than business logic.
 
 ## Useful endpoints
 
-- App: `http://localhost:8085`
+- App: `http://localhost:8080`
+- Schema Registry: `http://localhost:8082`
+- Schema Registry UI: `http://localhost:8000`
 - Redpanda Console: `http://localhost:8081`
 - Main topic: `user-created-event-topic`
 - DLT topic: `user-created-event-topic-dlt`
